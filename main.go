@@ -5,7 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,12 +30,20 @@ func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 	const logPrefix = ""
 
 	if logFile != "" {
+		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+
 		fd, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error opening the log file: %w", err)
 		}
 
 		bufferedFile := bufio.NewWriterSize(fd, 8192)
+
+		infoHandler := slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
 
 		closer := func() error {
 			if err := bufferedFile.Flush(); err != nil {
@@ -48,8 +55,12 @@ func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 			return nil
 		}
 
-		mWriter := io.MultiWriter(bufferedFile, os.Stderr)
-		return slog.New(slog.NewTextHandler(mWriter, nil)), closer, nil
+		mHandler := slog.NewMultiHandler(
+			debugHandler,
+			infoHandler,
+		)
+
+		return slog.New(mHandler), closer, nil
 	}
 
 	noOpCloser := func() error { return nil }
@@ -71,13 +82,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
-		logger.Info(fmt.Sprintf("failed to create store: %v\n", err))
+		logger.Error(fmt.Sprintf("failed to create store: %v\n", err))
 		return 1
 	}
 	s := newServer(*st, httpPort, cancel, logger)
 	var serverErr error
 	go func() {
-		logger.Info(fmt.Sprintf("Linko is running on http://localhost:%d", httpPort))
+		logger.Debug(fmt.Sprintf("Linko is running on http://localhost:%d", httpPort))
 		serverErr = s.start()
 	}()
 
@@ -85,13 +96,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	logger.Info("Linko is shutting down")
+	logger.Debug("Linko is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Info("failed to shutdown server", "error", err)
+		logger.Error("failed to shutdown server", "error", err)
 		return 1
 	}
 	if serverErr != nil {
-		logger.Info("server error", "error", serverErr)
+		logger.Error("server error", "error", serverErr)
 		return 1
 	}
 	return 0
