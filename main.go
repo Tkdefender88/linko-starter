@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,7 +27,7 @@ func main() {
 	os.Exit(status)
 }
 
-func initializeLogger(logFile string) (*log.Logger, func() error, error) {
+func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 	const logPrefix = ""
 
 	if logFile != "" {
@@ -49,11 +49,11 @@ func initializeLogger(logFile string) (*log.Logger, func() error, error) {
 		}
 
 		mWriter := io.MultiWriter(bufferedFile, os.Stderr)
-		return log.New(mWriter, logPrefix, log.LstdFlags), closer, nil
+		return slog.New(slog.NewTextHandler(mWriter, nil)), closer, nil
 	}
 
 	noOpCloser := func() error { return nil }
-	return log.New(os.Stderr, logPrefix, log.LstdFlags), noOpCloser, nil
+	return slog.New(slog.NewTextHandler(os.Stderr, nil)), noOpCloser, nil
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
@@ -71,13 +71,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {
-		logger.Printf("failed to create store: %v\n", err)
+		logger.Info(fmt.Sprintf("failed to create store: %v\n", err))
 		return 1
 	}
 	s := newServer(*st, httpPort, cancel, logger)
 	var serverErr error
 	go func() {
-		logger.Printf("Linko is running on http://localhost:%d", httpPort)
+		logger.Info(fmt.Sprintf("Linko is running on http://localhost:%d", httpPort))
 		serverErr = s.start()
 	}()
 
@@ -85,13 +85,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	logger.Printf("Linko is shutting down")
+	logger.Info("Linko is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Printf("failed to shutdown server: %v\n", err)
+		logger.Info("failed to shutdown server", "error", err)
 		return 1
 	}
 	if serverErr != nil {
-		logger.Printf("server error: %v\n", serverErr)
+		logger.Info("server error", "error", serverErr)
 		return 1
 	}
 	return 0
