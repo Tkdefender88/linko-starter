@@ -1,14 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
 	"boot.dev/linko/internal/linkoerr"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type StackTracer interface {
@@ -53,45 +55,55 @@ func replaceErrAttr(err error) slog.Attr {
 	return slog.GroupAttrs("error", errAttrs...)
 }
 
-func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
-	const logPrefix = ""
+func isTerminal() bool {
+	return isatty.IsCygwinTerminal(os.Stdout.Fd()) || isatty.IsTerminal(os.Stdout.Fd())
+}
 
-	if logFile != "" {
-		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
+
+	handlers := []slog.Handler{
+		tint.NewHandler(os.Stderr, &tint.Options{
 			Level:       slog.LevelDebug,
 			ReplaceAttr: replaceAttr,
-		})
+			NoColor:     !isTerminal(),
+		}),
+	}
 
-		fd, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error opening the log file: %w", err)
+	closers := []func() error{}
+
+	if logFile != "" {
+		lumberLogger := &lumberjack.Logger{
+			Filename:   logFile,
+			MaxSize:    1,
+			MaxAge:     28,
+			MaxBackups: 10,
+			LocalTime:  false,
+			Compress:   true,
 		}
-
-		bufferedFile := bufio.NewWriterSize(fd, 8192)
-
-		infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
+		infoHandler := slog.NewJSONHandler(lumberLogger, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
 			ReplaceAttr: replaceAttr,
 		})
 
-		closer := func() error {
-			if err := bufferedFile.Flush(); err != nil {
-				return fmt.Errorf("error flushing the log buffer: %w", err)
-			}
-			if err := fd.Close(); err != nil {
-				return fmt.Errorf("error closing the log file: %w", err)
+		handlers = append(handlers, infoHandler)
+		closers = append(closers, func() error {
+			if err := lumberLogger.Close(); err != nil {
+				fmt.Errorf("failed to close lumberjack logger: %w", err)
 			}
 			return nil
-		}
-
-		mHandler := slog.NewMultiHandler(
-			debugHandler,
-			infoHandler,
-		)
-
-		return slog.New(mHandler), closer, nil
+		})
 	}
 
-	noOpCloser := func() error { return nil }
-	return slog.New(slog.NewTextHandler(os.Stderr, nil)), noOpCloser, nil
+	closeFunc := func() error {
+		errs := []error{}
+		for _, closer := range closers {
+			err := closer()
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+
+	return slog.New(slog.NewMultiHandler(handlers...)), closeFunc, nil
 }
