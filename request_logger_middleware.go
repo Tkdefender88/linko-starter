@@ -50,7 +50,16 @@ func httpError(ctx context.Context, w http.ResponseWriter, status int, err error
 	if logCtx, ok := ctx.Value(LogContextKey).(*LogContext); ok {
 		logCtx.Error = err
 	}
-	http.Error(w, err.Error(), status)
+	switch status {
+	case http.StatusInternalServerError:
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	case http.StatusForbidden:
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	case http.StatusUnauthorized:
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	default:
+		http.Error(w, err.Error(), status)
+	}
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {

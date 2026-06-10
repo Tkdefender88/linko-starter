@@ -16,4 +16,4 @@ test:
 	go test ./...
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) linko.access.log
