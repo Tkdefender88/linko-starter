@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"boot.dev/linko/internal/linkoerr"
 	pkgerr "github.com/pkg/errors"
 )
 
@@ -15,25 +16,41 @@ type StackTracer interface {
 	StackTrace() pkgerr.StackTrace
 }
 
-func stackTraceErrors(groups []string, a slog.Attr) slog.Attr {
+type multiError interface {
+	error
+	Unwrap() []error
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
 		if !ok {
 			return a
 		}
-
-		if stackErr, ok := errors.AsType[StackTracer](err); ok {
-			return slog.GroupAttrs(a.Key, slog.Attr{
-				Key:   "message",
-				Value: slog.StringValue(stackErr.Error()),
-			}, slog.Attr{
-				Key:   "stack_trace",
-				Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
-			})
-		}
-		return slog.String(a.Key, fmt.Sprintf("%+v", err))
+		return errorAttrs(err)
 	}
 	return a
+}
+
+func errorAttrs(err error) slog.Attr {
+	errAttrs := []slog.Attr{}
+	if me, ok := errors.AsType[multiError](err); ok {
+		var attrs []slog.Attr
+		for i, e := range me.Unwrap() {
+			attrs = append(attrs, slog.String(fmt.Sprintf("error_%d", i+1), e.Error()))
+		}
+		return slog.GroupAttrs("errors", attrs...)
+	}
+
+	errAttrs = append(errAttrs, slog.String("message", err.Error()))
+	errAttrs = append(errAttrs, linkoerr.Attrs(err)...)
+
+	if stackErr, ok := errors.AsType[StackTracer](err); ok {
+		errAttrs = append(errAttrs,
+			slog.String("stack_trace", fmt.Sprintf("%+v", stackErr.StackTrace())))
+	}
+
+	return slog.GroupAttrs("error", errAttrs...)
 }
 
 func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
@@ -42,7 +59,7 @@ func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 	if logFile != "" {
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelDebug,
-			ReplaceAttr: stackTraceErrors,
+			ReplaceAttr: replaceAttr,
 		})
 
 		fd, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -54,7 +71,7 @@ func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 
 		infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
-			ReplaceAttr: stackTraceErrors,
+			ReplaceAttr: replaceAttr,
 		})
 
 		closer := func() error {
