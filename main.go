@@ -4,11 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"boot.dev/linko/internal/build"
 	"boot.dev/linko/internal/store"
 )
 
@@ -36,6 +38,18 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 			fmt.Fprintf(os.Stderr, "failed to close logger: %v", err)
 		}
 	}()
+
+	env := os.Getenv("ENV")
+	hostname, err := os.Hostname()
+	if err != nil {
+		logger.Error("failed to get hostname", "error", err)
+		return 1
+	}
+	logger = logger.With(
+		slog.String("env", env),
+		slog.String("hostname", hostname),
+		slog.String("git_sha", build.GitSHA),
+		slog.String("build_time", build.BuildTime))
 
 	st, err := store.New(dataDir, logger)
 	if err != nil {

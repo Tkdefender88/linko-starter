@@ -27,17 +27,17 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		if !ok {
 			return a
 		}
-		return errorAttrs(err)
+		return replaceErrAttr(err)
 	}
 	return a
 }
 
-func errorAttrs(err error) slog.Attr {
+func replaceErrAttr(err error) slog.Attr {
 	errAttrs := []slog.Attr{}
 	if me, ok := errors.AsType[multiError](err); ok {
 		var attrs []slog.Attr
 		for i, e := range me.Unwrap() {
-			attrs = append(attrs, slog.String(fmt.Sprintf("error_%d", i+1), e.Error()))
+			attrs = append(attrs, slog.Any(fmt.Sprintf("error_%d", i+1), linkoerr.Attrs(e)))
 		}
 		return slog.GroupAttrs("errors", attrs...)
 	}
