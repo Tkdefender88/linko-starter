@@ -88,7 +88,7 @@ func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
 		handlers = append(handlers, infoHandler)
 		closers = append(closers, func() error {
 			if err := lumberLogger.Close(); err != nil {
-				fmt.Errorf("failed to close lumberjack logger: %w", err)
+				return fmt.Errorf("failed to close lumberjack logger: %w", err)
 			}
 			return nil
 		})
