@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -62,6 +64,24 @@ func httpError(ctx context.Context, w http.ResponseWriter, status int, err error
 	}
 }
 
+func redactIP(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return host
+	}
+
+	if ip4 := ip.To4(); ip4 != nil {
+		return fmt.Sprintf("%d.%d.%d.x", ip4[0], ip4[1], ip4[2])
+	}
+
+	return ip.String()
+}
+
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,8 +107,8 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				slog.Duration("duration", duration),
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
-				slog.String("request_id", r.Header.Get("X-Request-ID")),
-				slog.String("client_ip", r.RemoteAddr)}
+				slog.String("request_id", spyWriter.Header().Get("X-Request-ID")),
+				slog.String("client_ip", redactIP(r.RemoteAddr))}
 			if logContext, ok := r.Context().Value(LogContextKey).(*LogContext); ok {
 				if logContext.Username != "" {
 					logAttrs = append(logAttrs, slog.String("user", logContext.Username))

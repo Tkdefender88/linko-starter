@@ -28,13 +28,14 @@ func Test_requestLogger(t *testing.T) {
 
 	requestLoggerMiddleware := requestLogger(logger)
 	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	loggedHandler := requestLoggerMiddleware(dummyHandler)
+	loggedHandler := requestIDMiddleware(requestLoggerMiddleware(dummyHandler))
 
 	req := httptest.NewRequest("GET", "http://lin.ko/api/stats", nil)
+	req.Header.Set("X-Request-ID", "testing-request-id")
 	rr := httptest.NewRecorder()
 	loggedHandler.ServeHTTP(rr, req)
 
-	const expectedLogString = `time=2023-10-01T12:34:57.000Z level=INFO msg="Served request" request_body_bytes=0 response_body_bytes=0 response_status=0 duration=0s method=GET path=/api/stats client_ip=192.0.2.1:1234` + "\n"
+	const expectedLogString = `time=2023-10-01T12:34:57.000Z level=INFO msg="Served request" request_body_bytes=0 response_body_bytes=0 response_status=0 duration=0s method=GET path=/api/stats request_id=testing-request-id client_ip=192.0.2.x` + "\n"
 	const expectedStatusCode = http.StatusOK
 
 	assert.Equal(t, expectedStatusCode, rr.Code, "Expected status code %d but got %d", expectedStatusCode, rr.Code)

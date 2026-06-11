@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"slices"
 
 	"boot.dev/linko/internal/linkoerr"
 	"github.com/lmittmann/tint"
@@ -31,6 +33,25 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		}
 		return replaceErrAttr(err)
 	}
+	sensitiveKeys := []string{
+		"user", "password", "key", "apikey", "token", "creditcardno", "credentials", "secret", "pin",
+	}
+	if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.String(a.Key, "[REDACTED]")
+	}
+
+	if val, ok := a.Value.Any().(string); ok {
+		uri, err := url.Parse(val)
+		if err != nil {
+			return a
+		}
+		if _, set := uri.User.Password(); set {
+			uri.User = url.UserPassword(uri.User.Username(), "REDACTED")
+			return slog.String(a.Key, uri.String())
+		}
+		return a
+	}
+
 	return a
 }
 
@@ -60,7 +81,6 @@ func isTerminal() bool {
 }
 
 func initializeLogger(logFile string) (*slog.Logger, func() error, error) {
-
 	handlers := []slog.Handler{
 		tint.NewHandler(os.Stderr, &tint.Options{
 			Level:       slog.LevelDebug,
