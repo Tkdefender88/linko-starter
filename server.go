@@ -8,11 +8,18 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"net/http/pprof"
 
 	"boot.dev/linko/internal/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 type server struct {
@@ -22,12 +29,30 @@ type server struct {
 	logger     *slog.Logger
 }
 
+func initTracing(ctx context.Context) (func(ctx context.Context) error, error) {
+	exp, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp,
+			sdktrace.WithBatchTimeout(2*time.Second),
+		),
+		sdktrace.WithResource(resource.Default()),
+	)
+	otel.SetTracerProvider(tp)
+	return tp.Shutdown, nil
+}
+
 func newServer(store store.Store, port int, cancel context.CancelFunc, logger *slog.Logger) *server {
 	mux := http.NewServeMux()
 
+	h := otelhttp.NewHandler(mux, "http.server")
+
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: metricsMiddleware(requestIDMiddleware(requestLogger(logger)(mux))),
+		Handler: metricsMiddleware(requestIDMiddleware(requestLogger(logger)(h))),
 	}
 
 	s := &server{

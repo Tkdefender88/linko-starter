@@ -28,6 +28,18 @@ func main() {
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
 
+	cleanup, err := initTracing(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize tracing: %v", err)
+	}
+
+	defer func() {
+		err := cleanup(context.Background())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to cleanup tracing: %v", err)
+		}
+	}()
+
 	logger, closer, err := initializeLogger(os.Getenv("LINKO_LOG_FILE"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v", err)

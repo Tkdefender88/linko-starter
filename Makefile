@@ -10,7 +10,7 @@ build:
 	@go build -ldflags "$(LDFLAGS)" -o $(BINARY)
 
 run: build
-	LINKO_LOG_FILE=linko.access.log ENV=development ./$(BINARY)
+	OTEL_EXPORTER_OTLP_TRACES_INSECURE=true LINKO_LOG_FILE=linko.access.log ENV=development ./$(BINARY)
 
 test:
 	go test ./...
