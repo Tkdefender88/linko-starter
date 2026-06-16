@@ -18,9 +18,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
+
+var tracer trace.Tracer
 
 type server struct {
 	httpServer *http.Server
@@ -41,6 +44,9 @@ func initTracing(ctx context.Context) (func(ctx context.Context) error, error) {
 		),
 		sdktrace.WithResource(resource.Default()),
 	)
+
+	tracer = tp.Tracer("boot.dev/linko")
+
 	otel.SetTracerProvider(tp)
 	return tp.Shutdown, nil
 }
